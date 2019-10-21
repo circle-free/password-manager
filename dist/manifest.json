@@ -1,0 +1,45 @@
+{
+    "name": "DecentPass",
+    "version": "0.0.1",
+    "manifest_version": 2,
+    "description": "Decentralized deterministic password manager that does not store passwords.",
+    "icons": {
+      "16": "icons/16.png",
+      "32": "icons/32.png",
+      "64": "icons/64.png",
+      "128": "icons/128.png"
+    },
+    "default_locale": "en",
+    "browser_action": {
+      "default_icon": "icons/32.png",
+      "default_title": "DecentPass",
+      "default_popup": "popup.html"
+    },
+    "background": {
+      "scripts": [
+        "js/background.js"
+      ],
+      "persistent": true
+    },
+    "content_security_policy": "default-src 'self'; style-src 'self' 'sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=' 'sha256-0mQ639Cg1T73U3KF/7Z+1IFJ/RuWz8GNnPpVs4/qMWw='",
+    "permissions": [
+      "contextMenus",
+      "notifications",
+      "activeTab",
+      "storage",
+      "tabs"
+    ],
+    "content_scripts": [
+      {
+        "matches": [
+          "http://*/*",
+          "https://*/*"
+        ],
+        "all_frames": true,
+        "js": [
+          "js/content.js"
+        ]
+      }
+    ]
+  }
+

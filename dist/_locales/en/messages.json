@@ -1,0 +1,46 @@
+{
+    "l10nExtensionName": {
+        "message": "DecentPass",
+        "description": "Name of the extension."
+    },
+    "l10nExtensionDescription": {
+        "message": "decentralized password manager",
+        "description": "Short description of the extension."
+    },
+    "l10nMasterPassword": {
+        "message": "Master Password",
+        "description": "Password used as seed to derive all passwords."
+    },
+    "l10nConfirm": {
+        "message": "Confirm",
+        "description": "Call to action to confirm or re-enter something."
+    },
+    "l10nChangePassword": {
+        "message": "Change Password",
+        "description": "Text for change password button."
+    },
+    "l10nUpdatePassword": {
+        "message": "Update Password",
+        "description": "Text for update password button."
+    },
+    "l10nEndSession": {
+        "message": "End Session",
+        "description": "To close the session."
+    },
+    "l10nCheckMetamask": {
+        "message": "Please confirm the transaction on MetaMask.",
+        "description": "Call to action at MetaMask."
+    },
+    "l10nChangingInstructions": {
+        "message": "Your old and new passwords will be filled in. Once you have completed the password change, make sure to click the 'Update Password' button in this extension.",
+        "description": "Instructions for how to change a password."
+    },
+    "l10nFirstTimeInfo": {
+        "message": "Set a Master Password. No rules are enforced, but it's very important and the only password you'll need to remember.",
+        "description": "Info for new users."
+    },
+    "l10nStartSessionInfo": {
+        "message": "Enter your Master Password.",
+        "description": "Info for new users."
+    }
+}

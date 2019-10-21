@@ -1,0 +1,92 @@
+* {
+    box-sizing: border-box;
+    padding: 0;
+    margin: 0;
+    border: 0;
+}
+
+body {
+    background: #222;
+    color: #eee;
+    width: 340px;
+    min-height: 200px;
+}
+
+.popup-padded {
+    padding: 10px 20px;
+}
+
+h1 {
+    color: #77d;
+    text-align: center;
+}
+
+h3 {
+    color: #77d;
+    text-align: center;
+}
+
+.flex-column {
+    width: 100%;
+    height: 200px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-evenly;
+    align-items: center;
+}
+
+.password,
+.confirm-password,
+.change-password,
+.update-password,
+.log-out {
+    width: 300px;
+    height: 40px;
+    padding: 10px 12px;
+    font-size: 16px;
+    text-align: center;
+    letter-spacing: 2px;
+    outline: none;
+    transition: border,background 0.30s ease-in-out;
+    -webkit-transition: border,background 0.30s ease-in-out;
+    -moz-transition: border,background 0.30s ease-in-out;
+    -ms-transition: border,background 0.30s ease-in-out;
+    -o-transition: border,background 0.30s ease-in-out;
+    border-radius: 5px;
+}
+
+.password,
+.confirm-password {
+    background: #222;
+    border: 2px solid #336;
+    color: #77d;
+}
+
+.password:focus,
+.confirm-password:focus {
+    border: 2px solid #77d;
+}
+
+.change-password,
+.update-password,
+.log-out {
+    background: #559;
+    border: 2px solid #559;
+    color: #222;
+    cursor: pointer;
+}
+
+.change-password:hover,
+.update-password:hover,
+.log-out:hover {
+    border: 2px solid #77d;
+    background: #77d;
+}
+
+.info {
+    width: 300px;
+    padding: 10px 12px;
+    font-size: 14px;
+    text-align: center;
+    line-height: 24px;
+}

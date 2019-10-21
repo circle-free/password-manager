@@ -1,0 +1,31 @@
+{
+  "name": "decentpass",
+  "version": "0.0.1",
+  "description": "Decentralized Password Manager Extension",
+  "scripts": {
+    "build": "npx webpack"
+  },
+  "keywords": [],
+  "author": "Michael De Luca",
+  "license": "ISC",
+  "devDependencies": {
+    "@babel/core": "^7.5.5",
+    "@babel/preset-env": "^7.5.5",
+    "@types/chrome": "0.0.75",
+    "@types/react": "^16.7.8",
+    "@types/react-dom": "^16.0.11",
+    "css-loader": "^1.0.1",
+    "style-loader": "^0.23.1",
+    "ts-loader": "^5.3.1",
+    "typescript": "^3.1.6",
+    "webpack": "^4.26.1",
+    "webpack-cli": "^3.1.2"
+  },
+  "dependencies": {
+    "ethers": "^4.0.33",
+    "extension-port-stream": "^1.0.0",
+    "metamask-inpage-provider": "^2.0.1",
+    "react": "^16.6.3",
+    "react-dom": "^16.6.3"
+  }
+}
