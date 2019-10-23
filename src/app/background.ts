@@ -35,14 +35,6 @@ chrome.storage.sync.get(['saltedPassword'], result => {
     console.log(`DecentPass - Retrieved sync storage salted master password ${result.key}`);
 });
 
-web3Provider.sendAsync({ method: 'eth_requestAccounts' }, async (err, res) => {
-    if (err) return console.log('DecentPass - Failed to request accounts from MetaMask');
-
-    state.account = res.result[0];
-    state.signer = provider.getSigner(state.account);
-    state.contract = new ethers.Contract(contractAddress, abi, state.signer);
-});
-
 const sendDomainSeed = (port, domain) => {
     if (!state.masterPassword) return;
 
@@ -51,62 +43,138 @@ const sendDomainSeed = (port, domain) => {
     console.log(`DecentPass - Generated domain Seed for ${domain}`);
 
     port.postMessage({ domainSeed });
+};
+
+const handleChangePasswordRequest = popupPort => {
+    chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
+        if (tabs.length === 0) return;
+
+        const tabPorts = state.contentPorts[tabs[0].id];
+        const tabPort = tabPorts[tabPorts.length-1];
+
+        tabPort.postMessage({ passwordChangeRequested: true });
+        popupPort.postMessage({ mode: 'changing' });
+    });
+};
+
+const handleUpdatePasswordRequest = popupPort => {
+    chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
+        if (tabs.length === 0) return;
+
+        const tabPorts = state.contentPorts[tabs[0].id];
+        const tabPort = tabPorts[tabPorts.length-1];
+
+        tabPort.postMessage({ passwordUpdateRequested: true });
+        popupPort.postMessage({ mode: 'transacting' });
+    });
+};
+
+const handleLogin = (popupPort, password) => {
+    const saltedPassword = getHash([password, state.account, salt]);
+    const correctPassword = saltedPassword === state.saltedPassword;
+
+    if (correctPassword) state.masterPassword = password;
+
+    if (popupPort.disconnected) return;
+
+    popupPort.postMessage({ incorrectPassword: !correctPassword, mode: correctPassword ? 'main' : 'passwords' });
 }
+
+const handlePasword = (popupPort, password, connect) => {
+    if (state.account && state.saltedPassword && !connect) return handleLogin(popupPort, password);
+
+    popupPort.postMessage({ mode: 'connecting' });
+
+    web3Provider.sendAsync({ method: 'eth_requestAccounts' }, async (err, res) => {
+        if (err) return console.log('DecentPass - Failed to request accounts from MetaMask');
+
+        state.account = res.result[0];
+        state.signer = provider.getSigner(state.account);
+        state.contract = new ethers.Contract(contractAddress, abi, state.signer);
+
+        if (state.saltedPassword) return handleLogin(popupPort, password);
+
+        const saltedPassword = getHash([password, state.account, salt]);
+
+        return chrome.storage.sync.set({ saltedPassword }, () => {
+            console.log(`DecentPass - Set sync storage salted master password to ${saltedPassword}`);
+
+            state.masterPassword = password;
+            state.saltedPassword = saltedPassword;
+
+            if (popupPort.disconnected) return;
+
+            popupPort.postMessage({ newUser: false, mode: 'main' });
+        });
+    });
+};
+
+const handleLogout = popupPort => {
+    state.masterPassword = null;
+    popupPort.postMessage({ newUser: false, mode: 'passwords' });
+};
 
 const handlePopupConnection = port => {
     console.log('DecentPass - Connection open from Popup.');
 
+    port.onDisconnect.addListener(() => port.disconnected = true);
+
     port.onMessage.addListener(message => {
         console.log('DecentPass - Message from Popup.');
 
-        const { changePasswordRequest, password, endSession, updatePasswordRequest } = message;
+        const { changePasswordRequest, password, connect, logOut, updatePasswordRequest } = message;
 
-        if (changePasswordRequest) {
-            return chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
-                if (tabs.length === 0) return;
+        if (password) return handlePasword(port, password, connect);
 
-                const tabPorts = state.contentPorts[tabs[0].id];
-                const tabPort = tabPorts[tabPorts.length-1];
+        if (changePasswordRequest) return handleChangePasswordRequest(port);
 
-                tabPort.postMessage({ passwordChangeRequested: true });
-                port.postMessage({ changing: true });
-            });
-        }
+        if (updatePasswordRequest) return handleUpdatePasswordRequest(port);
 
-        if (updatePasswordRequest) {
-            return chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
-                if (tabs.length === 0) return;
-
-                const tabPorts = state.contentPorts[tabs[0].id];
-                const tabPort = tabPorts[tabPorts.length-1];
-
-                tabPort.postMessage({ passwordUpdateRequested: true });
-                port.postMessage({ transacting: true });
-            });
-        }
-
-        if (password) {
-            const saltedPassword = getHash([password, state.account, salt]);
-
-            if (state.saltedPassword && saltedPassword !== state.saltedPassword) return port.postMessage({ incorrectPassword: true });
-
-            chrome.storage.sync.set({ saltedPassword }, () => {
-                console.log(`DecentPass - Set sync storage salted master password to ${saltedPassword}`);
-
-                state.masterPassword = password;
-                state.saltedPassword = saltedPassword;
-
-                port.postMessage({ active: true, newUser: false });
-            });
-        }
-
-        if (endSession) {
-            state.masterPassword = null;
-            port.postMessage({ active: false, newUser: false });
-        }
+        if (logOut) return handleLogout(port);
     });
 
-    port.postMessage({ active: !!state.masterPassword, newUser: !state.saltedPassword });
+    port.postMessage({ newUser: !state.saltedPassword, mode: state.masterPassword ? 'main' : 'passwords' });
+};
+
+const handleGetSalt = (contentPort, userDomainSeed) => {
+    const saltKey = getHash([userDomainSeed, state.masterPassword, salt]);
+
+    state.contract.getIndex(state.account, saltKey).then(result => {
+        console.log(`DecentPass - Retrieved password index for salt key ${saltKey}`);
+
+        const currentIndex = result.toNumber();
+        const currentSalt = getHash([currentIndex.toString(), state.masterPassword, salt]);
+
+        contentPort.postMessage({ userDomainSeed, salt: currentSalt });
+    });
+};
+
+const handleGetNewSalt = (contentPort, userDomainSeed) => {
+    const saltKey = getHash([userDomainSeed, state.masterPassword, salt]);
+
+    state.contract.getIndex(state.account, saltKey).then(result => {
+        console.log(`DecentPass - Retrieved password index for salt key ${saltKey}`);
+
+        const currentIndex = result.toNumber();
+        const newIndex = currentIndex + 1;
+        const currentSalt = getHash([currentIndex.toString(), state.masterPassword, salt]);
+        const newSalt = getHash([newIndex.toString(), state.masterPassword, salt]);
+
+        contentPort.postMessage({ userDomainSeed, salt: currentSalt, newSalt });
+    });
+};
+
+const handleUpdateSalt = userDomainSeed => {
+    const saltKey = getHash([userDomainSeed, state.masterPassword, salt]);
+
+    state.contract.incrementIndex(saltKey).then(tx => {
+        console.log(`DecentPass - Transaction to increment index for salt key ${saltKey} broadcasted. Details follow:`);
+        console.log(tx);
+        return tx.wait();
+    }).then(tx => {
+        console.log(`DecentPass - Transaction to increment index for salt key ${saltKey} mined. Details follow:`);
+        console.log(tx);
+    });
 };
 
 const handleContentScriptConnection = (port, domain) => {
@@ -123,53 +191,16 @@ const handleContentScriptConnection = (port, domain) => {
 
         if (getDomainSeed) return sendDomainSeed(port, domain);
 
-        if (getSalt && userDomainSeed && state.contract && state.masterPassword) {
-            const saltKey = getHash([userDomainSeed, state.masterPassword, salt]);
+        if (getSalt && userDomainSeed && state.contract && state.masterPassword) return handleGetSalt(port, userDomainSeed);
 
-            return state.contract.getIndex(state.account, saltKey).then(result => {
-                console.log(`DecentPass - Retrieved password index for ${domain} with salt key ${saltKey}`);
+        if (getNewSalt && userDomainSeed && state.contract && state.masterPassword) return handleGetNewSalt(port, userDomainSeed);
 
-                const currentIndex = result.toNumber();
-                const currentSalt = getHash([currentIndex.toString(), state.masterPassword, salt]);
-
-                return port.postMessage({ userDomainSeed, salt: currentSalt });
-            });
-        }
-
-        if (getNewSalt && userDomainSeed && state.contract && state.masterPassword) {
-            const saltKey = getHash([userDomainSeed, state.masterPassword, salt]);
-
-            return state.contract.getIndex(state.account, saltKey).then(result => {
-                console.log(`DecentPass - Retrieved password index for ${domain} with salt key ${saltKey}`);
-
-                const currentIndex = result.toNumber();
-                const newIndex = currentIndex + 1;
-                const currentSalt = getHash([currentIndex.toString(), state.masterPassword, salt]);
-                const newSalt = getHash([newIndex.toString(), state.masterPassword, salt]);
-
-                return port.postMessage({ userDomainSeed, salt: currentSalt, newSalt });
-            });
-        }
-
-        if (updateSalt && userDomainSeed && state.contract && state.masterPassword) {
-            const saltKey = getHash([userDomainSeed, state.masterPassword, salt]);
-
-            return state.contract.incrementIndex(saltKey).then(tx => {
-                console.log(`DecentPass - Transaction to increment index for ${domain} with salt key ${saltKey} broadcasted. Details follow:`);
-                console.log(tx);
-                return tx.wait();
-            }).then(tx => {
-                console.log(`DecentPass - Transaction to increment index for ${domain} with salt key ${saltKey} mined. Details follow:`);
-                console.log(tx);
-            });
-        }
+        if (updateSalt && userDomainSeed && state.contract && state.masterPassword) return handleUpdateSalt(userDomainSeed);
     });
 
     state.contentPorts[`${port.sender.tab.id}-${port.sender.frameId}`] = port;
 
-    if (!state.contentPorts[port.sender.tab.id]) {
-        state.contentPorts[port.sender.tab.id] = [];
-    }
+    if (!state.contentPorts[port.sender.tab.id]) state.contentPorts[port.sender.tab.id] = [];
 
     state.contentPorts[port.sender.tab.id].push(port);
 
@@ -177,7 +208,7 @@ const handleContentScriptConnection = (port, domain) => {
 };
 
 chrome.runtime.onConnect.addListener(port => {
-    if (!port.sender.tab) return handlePopupConnection(port);
+    if (!port.sender.tab && port.sender.id === chrome.runtime.id) return handlePopupConnection(port);
 
     const domain = getDomainFromHost(getHostFromSender(port.sender));
 
