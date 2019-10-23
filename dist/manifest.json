@@ -21,7 +21,7 @@
       ],
       "persistent": true
     },
-    "content_security_policy": "default-src 'self'; style-src 'self' 'sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=' 'sha256-0mQ639Cg1T73U3KF/7Z+1IFJ/RuWz8GNnPpVs4/qMWw='",
+    "content_security_policy": "default-src 'self'; style-src 'self' 'sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=' 'sha256-5nyWOxxVTmNxUyfd0x/Qv42dqSj5iEOyrr4QQDeWedc='",
     "permissions": [
       "contextMenus",
       "notifications",

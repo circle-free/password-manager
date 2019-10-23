@@ -7,40 +7,60 @@
         "message": "decentralized password manager",
         "description": "Short description of the extension."
     },
-    "l10nMasterPassword": {
+    "l10nPasswordPlaceholder": {
         "message": "Master Password",
-        "description": "Password used as seed to derive all passwords."
+        "description": "Placeholder for master password field."
     },
-    "l10nConfirm": {
-        "message": "Confirm",
-        "description": "Call to action to confirm or re-enter something."
+    "l10nConfirmPasswordPlaceholder": {
+        "message": "Confirm Master Password",
+        "description": "Placeholder for confirm master password field."
     },
-    "l10nChangePassword": {
+    "l10nChangePasswordButton": {
         "message": "Change Password",
-        "description": "Text for change password button."
+        "description": "Label for change password button."
     },
-    "l10nUpdatePassword": {
+    "l10nUpdatePasswordButton": {
         "message": "Update Password",
-        "description": "Text for update password button."
+        "description": "Label for update password button."
     },
-    "l10nEndSession": {
-        "message": "End Session",
-        "description": "To close the session."
+    "l10nLoginButton": {
+        "message": "Log In",
+        "description": "Label for Log In button."
     },
-    "l10nCheckMetamask": {
-        "message": "Please confirm the transaction on MetaMask.",
-        "description": "Call to action at MetaMask."
+    "l10nLogoutButton": {
+        "message": "Log Out",
+        "description": "Label for Log Out button."
+    },
+    "l10nConnectButton": {
+        "message": "Connect to MetaMask",
+        "description": "Label for MetaMask connect button."
+    },
+    "l10nNextButton": {
+        "message": "Next",
+        "description": "Label for a generic next button."
+    },
+    "l10nPreConnectInstructions": {
+        "message": "In order to deliver the same passwords on other devices DecentPass is installed, it needs to store non-private metadata on the Ethereum blockchain, via MetaMask.",
+        "description": "Instructions before connecting to MetaMask."
+    },
+    "l10nConnectingInstructions": {
+        "message": "Click 'Connect' in the MetaMask window to allow DecentPass to see your Ethereum address, and create transactions. Don't worry, MetaMask will prompt you every time a transaction will be sent.",
+        "description": "Instructions while connecting to MetaMask."
     },
     "l10nChangingInstructions": {
         "message": "Your old and new passwords will be filled in. Once you have completed the password change, make sure to click the 'Update Password' button in this extension.",
-        "description": "Instructions for how to change a password."
+        "description": "Instructions during password change."
     },
-    "l10nFirstTimeInfo": {
+    "l10nUpdatingInstructions": {
+        "message": "Please confirm the transaction on MetaMask.",
+        "description": "Instructions during password update."
+    },
+    "l10nFirstTimeInstructions": {
         "message": "Set a Master Password. No rules are enforced, but it's very important and the only password you'll need to remember.",
-        "description": "Info for new users."
+        "description": "Instructions for new users setting up master password."
     },
-    "l10nStartSessionInfo": {
+    "l10nStartSessionInstructions": {
         "message": "Enter your Master Password.",
-        "description": "Info for new users."
+        "description": "Instructions for returning users restarting session."
     }
 }
