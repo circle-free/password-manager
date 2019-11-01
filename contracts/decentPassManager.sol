@@ -33,7 +33,7 @@ contract DecentPassManager {
         return sha256(abi.encodePacked(account, relayer));
     }
 
-    // get address of account that signed the arg with the proxy paramaters
+    // get address of account that signed the arg with the proxy parameters
     function getAddressFromSig(bytes1 func, bytes32 arg, address relayer, uint256 gasprice, uint256 minFee, uint256 nonce, uint256 expiryBlock, uint8 v, bytes32 r, bytes32 s) public pure returns (address) {
         return ecrecover(keccak256(abi.encodePacked(func, arg, relayer, gasprice, minFee, nonce, expiryBlock)), v, r, s);
     }
@@ -43,7 +43,7 @@ contract DecentPassManager {
         // the fee will be approximately earlyBonusFactor tenths of a percent more for every block earlier the transaction is relayed
         uint256 calculatedFee = minFee + (minFee >> 10) * (expiryBlock - block.number) * account.earlyBonusFactor;
 
-        // if the account doesn't have enough balance, just take it all
+        // if the account doesn't have enough balance, just take it all at this point
         uint256 fee = account.balance >= calculatedFee ? calculatedFee : account.balance;
         account.balance -= fee;
         accounts[msg.sender].balance += fee;
@@ -125,7 +125,7 @@ contract DecentPassManager {
 
     // increment the index by proxy, where the relayer provides a signature that implies the account
     function incrementIndexByProxy(bytes32 saltKey, uint256 minFee, uint256 nonce, uint256 expiryBlock, uint8 v, bytes32 r, bytes32 s) public {
-        // get signingAddress from signature of paramaters
+        // get signingAddress from signature of parameters
         address signingAddress = getAddressFromSig(0x01, saltKey, msg.sender, tx.gasprice, minFee, nonce, expiryBlock, v, r, s);
 
         // get account address from delegate mapping, then get reference to account itself
@@ -147,7 +147,7 @@ contract DecentPassManager {
 
     // set encrypted seed by proxy, where the relayer provides a signature that implies the account
     function setEncryptedSeedByProxy(bytes32 encryptedSeed, uint256 minFee, uint256 nonce, uint256 expiryBlock, uint8 v, bytes32 r, bytes32 s) public {
-        // get signingAddress from signature of paramaters
+        // get signingAddress from signature of parameters
         address signingAddress = getAddressFromSig(0x02, encryptedSeed, msg.sender, tx.gasprice, minFee, nonce, expiryBlock, v, r, s);
 
         // get account address from delegate mapping, then get reference to account itself
@@ -167,29 +167,9 @@ contract DecentPassManager {
         emit EncryptedSeedSet(accountAddress);
     }
 
-    // get an account's balance
-    function getBalance(address account) public view returns (uint256) {
-        return accounts[account].balance;
-    }
-
-    // get the block at which an account is unlocked
-    function getUnlockBlock(address account) public view returns (uint256) {
-        return accounts[account].unlockBlock;
-    }
-
-    // get the early bonus factora a relayer will get for an account
-    function getEarlyBonusFactor(address account) public view returns (uint256) {
-        return accounts[account].earlyBonusFactor;
-    }
-
     // get the raley nonce given adn account and relayer
     function getNonce(address account, address relayer) public view returns (uint256) {
         return nonces[getNonceKey(account, relayer)];
-    }
-
-    // get an account's encrypted seed
-    function getEncryptedSeed(address account) public view returns (bytes32) {
-        return accounts[account].encryptedSeed;
     }
 
     // get the index for a salt key for an account
