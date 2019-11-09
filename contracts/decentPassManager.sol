@@ -4,7 +4,7 @@ contract DecentPassManager {
     event SignerAdded(address indexed account, address indexed signer);
     event SignerRemoved(address indexed account, address indexed signer);
     event DepositMade(address indexed account, uint256 indexed amount, uint256 indexed unlockBlock);
-    event WithdrawalMade(address indexed account, uint256 indexed amount);
+    event WithdrawalMade(address indexed account, address indexed destination, uint256 indexed amount);
     event IndexIncremented(address indexed account, bytes32 saltKey);
     event EncryptedSeedSet(address indexed account);
     event EarlyBonusFactorSet(address indexed account, uint256 indexed earlyBonusFactor);
@@ -41,7 +41,7 @@ contract DecentPassManager {
     // pay the relayer (the sender) as much as possible
     function payRelayer(uint256 minFee, Account storage account, uint256 expiryBlock) internal {
         // the fee will be approximately earlyBonusFactor tenths of a percent more for every block earlier the transaction is relayed
-        uint256 calculatedFee = minFee + (minFee >> 10) * (expiryBlock - block.number) * account.earlyBonusFactor;
+        uint256 calculatedFee = minFee + (minFee >> 10) * (expiryBlock - block.number - 1) * account.earlyBonusFactor;
 
         // if the account doesn't have enough balance, just take it all at this point
         uint256 fee = account.balance >= calculatedFee ? calculatedFee : account.balance;
@@ -90,7 +90,7 @@ contract DecentPassManager {
     // set an early bonus factor for relayed transactions
     function setEarlyBonusFactor(uint256 earlyBonusFactor) public {
         Account storage account = accounts[msg.sender];
-        assert(earlyBonusFactor > account.earlyBonusFactor || block.number >= account.unlockBlock);
+        assert(earlyBonusFactor > account.earlyBonusFactor || block.number > account.unlockBlock);
         account.earlyBonusFactor = earlyBonusFactor;
         account.unlockBlock = block.number + 7200;
 
@@ -98,7 +98,7 @@ contract DecentPassManager {
     }
 
     // withdraw all ETH (in wei) in account, only if they've waited 24 hours since the last deposit
-    function withdraw() public {
+    function withdraw(address payable destination) public {
         Account storage account = accounts[msg.sender];
         assert(block.number >= account.unlockBlock);
 
@@ -106,9 +106,9 @@ contract DecentPassManager {
         account.balance = 0;
         account.unlockBlock = 0;
 
-        msg.sender.transfer(value);
+        destination.transfer(value);
 
-        emit WithdrawalMade(msg.sender, value);
+        emit WithdrawalMade(msg.sender, destination, value);
     }
 
     // increment the index directly, where the account in question is the sender
@@ -133,7 +133,8 @@ contract DecentPassManager {
         Account storage account = accounts[accountAddress];
 
         // assert signature is not expired, assert nonce is valid, and increment nonce (replay protection)
-        assert(block.number <= expiryBlock);
+        // note that block.number is of the last mined block, not the block this tx will go in
+        assert(block.number < expiryBlock);
         assert(nonce == nonces[getNonceKey(accountAddress, msg.sender)]++);
 
         // increment the index
@@ -155,7 +156,8 @@ contract DecentPassManager {
         Account storage account = accounts[accountAddress];
 
         // assert signature is not expired, assert nonce is valid, and increment nonce (replay protection)
-        assert(block.number <= expiryBlock);
+        // note that block.number is of the last mined block, not the block this tx will go in
+        assert(block.number < expiryBlock);
         assert(nonce == nonces[getNonceKey(accountAddress, msg.sender)]++);
 
         // set the encrypted seed
