@@ -66,9 +66,10 @@ contract DecentPassManager {
     function deposit() public payable {
         Account storage account = accounts[msg.sender];
         account.balance += msg.value;
-        account.unlockBlock = block.number + 7200;
+        uint256 unlockBlock = block.number + 7200
+        account.unlockBlock = unlockBlock;
 
-        emit DepositMade(msg.sender, msg.value, account.unlockBlock);
+        emit DepositMade(msg.sender, msg.value, unlockBlock);
     }
 
     // allows another address to sign on an account's behalf
