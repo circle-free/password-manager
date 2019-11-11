@@ -41,7 +41,7 @@ contract DecentPassManager {
     // pay the relayer (the sender) as much as possible
     function payRelayer(uint256 minFee, Account storage account, uint256 expiryBlock) internal {
         // the fee will be approximately earlyBonusFactor tenths of a percent more for every block earlier the transaction is relayed
-        uint256 calculatedFee = minFee + (minFee >> 10) * (expiryBlock - block.number - 1) * account.earlyBonusFactor;
+        uint256 calculatedFee = minFee + (minFee >> 10) * (expiryBlock - block.number) * account.earlyBonusFactor;
 
         // if the account doesn't have enough balance, just take it all at this point
         uint256 fee = account.balance >= calculatedFee ? calculatedFee : account.balance;
@@ -91,7 +91,7 @@ contract DecentPassManager {
     // set an early bonus factor for relayed transactions
     function setEarlyBonusFactor(uint256 earlyBonusFactor) public {
         Account storage account = accounts[msg.sender];
-        assert(earlyBonusFactor > account.earlyBonusFactor || block.number > account.unlockBlock);
+        assert(earlyBonusFactor > account.earlyBonusFactor || block.number >= account.unlockBlock);
         account.earlyBonusFactor = earlyBonusFactor;
         account.unlockBlock = block.number + 7200;
 
@@ -134,8 +134,7 @@ contract DecentPassManager {
         Account storage account = accounts[accountAddress];
 
         // assert signature is not expired, assert nonce is valid, and increment nonce (replay protection)
-        // note that block.number is of the last mined block, not the block this tx will go in
-        assert(block.number < expiryBlock);
+        assert(block.number <= expiryBlock);
         assert(nonce == nonces[getNonceKey(accountAddress, msg.sender)]++);
 
         // increment the index
@@ -157,8 +156,7 @@ contract DecentPassManager {
         Account storage account = accounts[accountAddress];
 
         // assert signature is not expired, assert nonce is valid, and increment nonce (replay protection)
-        // note that block.number is of the last mined block, not the block this tx will go in
-        assert(block.number < expiryBlock);
+        assert(block.number <= expiryBlock);
         assert(nonce == nonces[getNonceKey(accountAddress, msg.sender)]++);
 
         // set the encrypted seed
