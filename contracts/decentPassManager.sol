@@ -14,6 +14,7 @@ contract DecentPassManager {
         uint256 unlockBlock;
         uint256 earlyBonusFactor;
         bytes32 encryptedSeed;
+        bytes16 iv;
     }
 
     mapping(address => Account) public accounts;
@@ -24,19 +25,10 @@ contract DecentPassManager {
     constructor() public {}
 
     // compute the index key by salting the salt key with the account
-    function getIndexKey(bytes32 saltKey, address account) public pure returns (bytes32) {
-        return sha256(abi.encodePacked(saltKey, account));
-    }
+    function getIndexKey(bytes32 saltKey, address account) public pure returns (bytes32) { return sha256(abi.encodePacked(saltKey, account)); }
 
     // compute the nonce key by salting account with the relayer
-    function getNonceKey(address account, address relayer) public pure returns (bytes32) {
-        return sha256(abi.encodePacked(account, relayer));
-    }
-
-    // get address of account that signed the arg with the proxy parameters
-    function getAddressFromSig(bytes1 func, bytes32 arg, address relayer, uint256 gasprice, uint256 minFee, uint256 nonce, uint256 expiryBlock, uint8 v, bytes32 r, bytes32 s) public pure returns (address) {
-        return ecrecover(keccak256(abi.encodePacked(func, arg, relayer, gasprice, minFee, nonce, expiryBlock)), v, r, s);
-    }
+    function getNonceKey(address account, address relayer) public pure returns (bytes32) { return sha256(abi.encodePacked(account, relayer)); }
 
     // pay the relayer (the sender) as much as possible
     function payRelayer(uint256 minFee, Account storage account, uint256 expiryBlock) internal {
@@ -50,15 +42,13 @@ contract DecentPassManager {
     }
 
     // fallback to result in fund deposit
-    function() external payable {
-        deposit();
-    }
+    function() external payable { deposit(); }
 
     // create an account by funding it, assigning a singer for relayed calls, and setting an encrypted seed
-    function create(address signingAddress, bytes32 encryptedSeed, uint256 earlyBonusFactor) public payable {
+    function create(address signingAddress, bytes32 encryptedSeed, bytes16 iv, uint256 earlyBonusFactor) public payable {
         if (msg.value != 0) deposit();
         if (signingAddress != address(0)) addSigner(signingAddress);
-        if (encryptedSeed != bytes32(0)) setEncryptedSeed(encryptedSeed);
+        if (encryptedSeed != bytes32(0)) setEncryptedSeed(encryptedSeed, iv);
         if (earlyBonusFactor != uint256(0)) setEarlyBonusFactor(earlyBonusFactor);
     }
 
@@ -66,7 +56,7 @@ contract DecentPassManager {
     function deposit() public payable {
         Account storage account = accounts[msg.sender];
         account.balance += msg.value;
-        uint256 unlockBlock = block.number + 7200
+        uint256 unlockBlock = block.number + 7200;
         account.unlockBlock = unlockBlock;
 
         emit DepositMade(msg.sender, msg.value, unlockBlock);
@@ -99,17 +89,16 @@ contract DecentPassManager {
     }
 
     // withdraw all ETH (in wei) in account, only if they've waited 24 hours since the last deposit
-    function withdraw(address payable destination) public {
+    function withdraw(address payable destination, uint256 amount) public {
         Account storage account = accounts[msg.sender];
         assert(block.number >= account.unlockBlock);
 
-        uint256 value = account.balance;
-        account.balance = 0;
+        assert(amount <= account.balance);
+        account.balance -= amount;
         account.unlockBlock = 0;
 
-        destination.transfer(value);
-
-        emit WithdrawalMade(msg.sender, destination, value);
+        destination.transfer(amount);
+        emit WithdrawalMade(msg.sender, destination, amount);
     }
 
     // increment the index directly, where the account in question is the sender
@@ -119,15 +108,17 @@ contract DecentPassManager {
     }
 
     // set the encrypted seed directly, where the account in question is the sender
-    function setEncryptedSeed(bytes32 encryptedSeed) public {
-        accounts[msg.sender].encryptedSeed = encryptedSeed;
+    function setEncryptedSeed(bytes32 encryptedSeed, bytes16 iv) public {
+        Account storage account = accounts[msg.sender];
+        account.encryptedSeed = encryptedSeed;
+        account.iv = iv;
         emit EncryptedSeedSet(msg.sender);
     }
 
     // increment the index by proxy, where the relayer provides a signature that implies the account
     function incrementIndexByProxy(bytes32 saltKey, uint256 minFee, uint256 nonce, uint256 expiryBlock, uint8 v, bytes32 r, bytes32 s) public {
         // get signingAddress from signature of parameters
-        address signingAddress = getAddressFromSig(0x01, saltKey, msg.sender, tx.gasprice, minFee, nonce, expiryBlock, v, r, s);
+        address signingAddress = ecrecover(keccak256(abi.encodePacked(saltKey, msg.sender, tx.gasprice, minFee, nonce, expiryBlock)), v, r, s);
 
         // get account address from delegate mapping, then get reference to account itself
         address accountAddress = delegations[signingAddress];
@@ -147,9 +138,9 @@ contract DecentPassManager {
     }
 
     // set encrypted seed by proxy, where the relayer provides a signature that implies the account
-    function setEncryptedSeedByProxy(bytes32 encryptedSeed, uint256 minFee, uint256 nonce, uint256 expiryBlock, uint8 v, bytes32 r, bytes32 s) public {
+    function setEncryptedSeedByProxy(bytes32 encryptedSeed, bytes16 iv, uint256 minFee, uint256 nonce, uint256 expiryBlock, uint8 v, bytes32 r, bytes32 s) public {
         // get signingAddress from signature of parameters
-        address signingAddress = getAddressFromSig(0x02, encryptedSeed, msg.sender, tx.gasprice, minFee, nonce, expiryBlock, v, r, s);
+        address signingAddress = ecrecover(keccak256(abi.encodePacked(encryptedSeed, iv, msg.sender, tx.gasprice, minFee, nonce, expiryBlock)), v, r, s);
 
         // get account address from delegate mapping, then get reference to account itself
         address accountAddress = delegations[signingAddress];
@@ -161,6 +152,7 @@ contract DecentPassManager {
 
         // set the encrypted seed
         account.encryptedSeed = encryptedSeed;
+        account.iv = iv;
 
         // refund the relayer as much as possible
         payRelayer(minFee, account, expiryBlock);
@@ -169,12 +161,8 @@ contract DecentPassManager {
     }
 
     // get the raley nonce given adn account and relayer
-    function getNonce(address account, address relayer) public view returns (uint256) {
-        return nonces[getNonceKey(account, relayer)];
-    }
+    function getNonce(address account, address relayer) public view returns (uint256) { return nonces[getNonceKey(account, relayer)]; }
 
     // get the index for a salt key for an account
-    function getIndex(bytes32 saltKey, address account) public view returns (uint256) {
-        return indices[getIndexKey(saltKey, account)];
-    }
+    function getIndex(bytes32 saltKey, address account) public view returns (uint256) { return indices[getIndexKey(saltKey, account)]; }
 }
