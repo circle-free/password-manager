@@ -128,6 +128,7 @@ const isUserInput = element => {
     return tagNames.includes(element.tagName) && (types.includes(element.type) || types.includes(element.name));
 };
 
+// TODO: consider connecting only once a password input is focused
 state.port = chrome.runtime.connect();
 
 state.port.onMessage.addListener(async message => {
