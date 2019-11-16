@@ -1,13 +1,14 @@
 pragma solidity >=0.5.0 <0.7.0;
 
 contract DecentPassManager {
+    event DepositMade(address indexed account, uint256 indexed amount, uint256 indexed unlockBlock);
+    event EarlyBonusFactorSet(address indexed account, uint256 indexed earlyBonusFactor);
+    event EncryptedSeedSet(address indexed account);
+    event IndexIncremented(address indexed account, bytes32 saltKey);
+    event NonceUsed(address indexed account, address indexed relayer, uint256 indexed nonce);
     event SignerAdded(address indexed account, address indexed signer);
     event SignerRemoved(address indexed account, address indexed signer);
-    event DepositMade(address indexed account, uint256 indexed amount, uint256 indexed unlockBlock);
     event WithdrawalMade(address indexed account, address indexed destination, uint256 indexed amount);
-    event IndexIncremented(address indexed account, bytes32 saltKey);
-    event EncryptedSeedSet(address indexed account);
-    event EarlyBonusFactorSet(address indexed account, uint256 indexed earlyBonusFactor);
 
     struct Account {
         uint256 balance;
@@ -19,16 +20,16 @@ contract DecentPassManager {
 
     mapping(address => Account) public accounts;
     mapping(address => address) public delegations;
-    mapping(bytes32 => uint256) public indices;
-    mapping(bytes32 => uint256) public nonces;
+    mapping(bytes32 => uint256) internal indices;
+    mapping(bytes32 => uint256) internal nonces;
 
     constructor() public {}
 
     // compute the index key by salting the salt key with the account
-    function getIndexKey(bytes32 saltKey, address account) public pure returns (bytes32) { return sha256(abi.encodePacked(saltKey, account)); }
+    function getIndexKey(bytes32 saltKey, address account) internal pure returns (bytes32) { return sha256(abi.encodePacked(saltKey, account)); }
 
-    // compute the nonce key by salting account with the relayer
-    function getNonceKey(address account, address relayer) public pure returns (bytes32) { return sha256(abi.encodePacked(account, relayer)); }
+    // compute the nonce key by salting the relayer with the account
+    function getNonceKey(address relayer, address account) internal pure returns (bytes32) { return sha256(abi.encodePacked(account, relayer)); }
 
     // pay the relayer (the sender) as much as possible
     function payRelayer(uint256 minFee, Account storage account, uint256 expiryBlock) internal {
@@ -45,7 +46,7 @@ contract DecentPassManager {
     function() external payable { deposit(); }
 
     // create an account by funding it, assigning a singer for relayed calls, and setting an encrypted seed
-    function create(address signingAddress, bytes32 encryptedSeed, bytes16 iv, uint256 earlyBonusFactor) public payable {
+    function createAccount(address signingAddress, bytes32 encryptedSeed, bytes16 iv, uint256 earlyBonusFactor) public payable {
         if (msg.value != 0) deposit();
         if (signingAddress != address(0)) addSigner(signingAddress);
         if (encryptedSeed != bytes32(0)) setEncryptedSeed(encryptedSeed, iv);
@@ -115,10 +116,13 @@ contract DecentPassManager {
         emit EncryptedSeedSet(msg.sender);
     }
 
-    // increment the index by proxy, where the relayer provides a signature that implies the account
-    function incrementIndexByProxy(bytes32 saltKey, uint256 minFee, uint256 nonce, uint256 expiryBlock, uint8 v, bytes32 r, bytes32 s) public {
+    // relay encoded data with signature to increment an index or set encrypted seed
+    function relay(bytes memory encoded, uint8 v, bytes32 r, bytes32 s) public {
         // get signingAddress from signature of parameters
-        address signingAddress = ecrecover(keccak256(abi.encodePacked(saltKey, msg.sender, tx.gasprice, minFee, nonce, expiryBlock)), v, r, s);
+        address signingAddress = ecrecover(keccak256(encoded), v, r, s);
+
+        // decode the payload into paramters
+        (bytes1 mode, bytes32 arg1, bytes16 arg2, uint256 minFee, uint256 nonce, uint256 expiryBlock) = abi.decode(encoded, (bytes1, bytes32, bytes16, uint256, uint256, uint256));
 
         // get account address from delegate mapping, then get reference to account itself
         address accountAddress = delegations[signingAddress];
@@ -126,43 +130,25 @@ contract DecentPassManager {
 
         // assert signature is not expired, assert nonce is valid, and increment nonce (replay protection)
         assert(block.number <= expiryBlock);
+        emit NonceUsed(accountAddress, msg.sender, nonce);
         assert(nonce == nonces[getNonceKey(accountAddress, msg.sender)]++);
 
-        // increment the index
-        indices[getIndexKey(saltKey, accountAddress)]++;
+        if (mode == 0x00) {                                     // increment the index
+            indices[getIndexKey(arg1, accountAddress)]++;
+            emit IndexIncremented(accountAddress, arg1);
+        } else if (mode == 0x01) {                              // set the encrypted seed
+            account.encryptedSeed = arg1;
+            account.iv = arg2;
+            emit EncryptedSeedSet(accountAddress);
+        }
 
         // refund the relayer as much as possible
         payRelayer(minFee, account, expiryBlock);
-
-        emit IndexIncremented(accountAddress, saltKey);
     }
 
-    // set encrypted seed by proxy, where the relayer provides a signature that implies the account
-    function setEncryptedSeedByProxy(bytes32 encryptedSeed, bytes16 iv, uint256 minFee, uint256 nonce, uint256 expiryBlock, uint8 v, bytes32 r, bytes32 s) public {
-        // get signingAddress from signature of parameters
-        address signingAddress = ecrecover(keccak256(abi.encodePacked(encryptedSeed, iv, msg.sender, tx.gasprice, minFee, nonce, expiryBlock)), v, r, s);
+    // get the relay nonce given an account and a relayer
+    function getRelayNonce(address account, address relayer) public view returns (uint256) { return nonces[getNonceKey(relayer, account)]; }
 
-        // get account address from delegate mapping, then get reference to account itself
-        address accountAddress = delegations[signingAddress];
-        Account storage account = accounts[accountAddress];
-
-        // assert signature is not expired, assert nonce is valid, and increment nonce (replay protection)
-        assert(block.number <= expiryBlock);
-        assert(nonce == nonces[getNonceKey(accountAddress, msg.sender)]++);
-
-        // set the encrypted seed
-        account.encryptedSeed = encryptedSeed;
-        account.iv = iv;
-
-        // refund the relayer as much as possible
-        payRelayer(minFee, account, expiryBlock);
-
-        emit EncryptedSeedSet(accountAddress);
-    }
-
-    // get the raley nonce given adn account and relayer
-    function getNonce(address account, address relayer) public view returns (uint256) { return nonces[getNonceKey(account, relayer)]; }
-
-    // get the index for a salt key for an account
-    function getIndex(bytes32 saltKey, address account) public view returns (uint256) { return indices[getIndexKey(saltKey, account)]; }
+    // get the index given a salt key and an account
+    function getIndex(address account, bytes32 saltKey) public view returns (uint256) { return indices[getIndexKey(saltKey, account)]; }
 }
