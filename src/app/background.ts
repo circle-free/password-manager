@@ -3,10 +3,11 @@ export {};
 import ManagerContract from "../libs/managerContract";
 import { decryptData, deriveKey, encryptData, generateSeed, getAddressFromKey, hash, signDigest } from "../libs/cryptoHelpers";
 import Account from "../libs/account";
-import PopupPort from "../libs/popupPort";
+import { PortToPopup } from "../libs/popupPort";
+import { connect, personalSign } from "../libs/metamask";
+import { BackgroundState, BackgroundResponse, PopupRequest } from "../libs/constants";
 import { getHostFromSender, getDomainFromHost, hexStringToBuffer, bufferToHexString } from "../libs/generalHelpers";
 
-const crypto = require('crypto');
 const ethers = require('ethers');
 const MetamaskInpageProvider = require('metamask-inpage-provider');
 const PortStream = require('extension-port-stream');
@@ -25,7 +26,7 @@ interface StateLayout {
     account: Account | null;
     contract: ManagerContract | null;
     contentPorts: object | null;
-}
+};
 
 const state : StateLayout = {
     account: null,
@@ -33,91 +34,118 @@ const state : StateLayout = {
     contentPorts: {},
 };
 
+const conveyState = (popupPort : PortToPopup) => {
+    // account never initialized, which means address was never fetched from MetaMask
+    if (!state.account) return popupPort.sendState(BackgroundState.NotConnected);
+
+    // got address from metamask, but publics don't exist, so no on-chain account
+    if (!state.account.hasPublics) return popupPort.sendState(BackgroundState.NoAccount);
+
+    // account exists, but need to login before we bother checking if we have a root
+    if (!state.account.isLoggedIn) return popupPort.sendState(BackgroundState.LoggedOut);
+
+    // account exists and logged in, but need to get root from seed
+    if (!state.account.hasRoot) return popupPort.sendState(BackgroundState.NoRoot);
+
+    return popupPort.sendState(BackgroundState.LoggedIn);    // can generate passwords
+}
 
 // Popup Handlers
 const handlePopupConnection = (port : chrome.runtime.Port) => {
     console.log('DecentPass - Connection open from Popup.');
-    const popupPort = new PopupPort(port);
+    const popupPort = new PortToPopup(port);
 
-    popupPort.onConnectRequest(() => handleConnect(popupPort));
-    popupPort.onCreateRequest(password => handleCreate(popupPort, password));
-    popupPort.onLoginRequest(password => handleLogin(popupPort, password));
-    popupPort.onLogoutRequest(() => handleLogout(popupPort));
-    popupPort.onClearRequest(() => handleClear(popupPort));
-    popupPort.onChangePasswordRequest(() => handleChangePasswordRequest(popupPort));
-    popupPort.onUpdatePasswordRequest(() => handleUpdatePasswordRequest(popupPort));
+    popupPort.onRequest(PopupRequest.Connect, () => handleConnectToMetamask(popupPort));
+    popupPort.onRequest(PopupRequest.CreateAccount, password => handleCreateAccount(popupPort, password));
+    popupPort.onRequest(PopupRequest.Login, password => handleLogin(popupPort, password));
+    popupPort.onRequest(PopupRequest.GetRoot, () => handleGetRoot(popupPort));
+    popupPort.onRequest(PopupRequest.Logout, () => handleLogout(popupPort));
+    popupPort.onRequest(PopupRequest.ClearPrivates, () => handleClearPrivates(popupPort));
+    popupPort.onRequest(PopupRequest.ChangePassword, () => handleChangePasswordRequest(popupPort));
+    popupPort.onRequest(PopupRequest.UpdatePassword, () => handleUpdatePasswordRequest(popupPort));
 
-    if (!state.account) return popupPort.sendUninitialized();
-
-    if (state.account.isLoggedIn) return popupPort.sendLoggedIn();
-
-    return popupPort.sendLoggedOut();
+    conveyState(popupPort);
 };
 
-const handleConnect = (popupPort: PopupPort) => {
-    popupPort.sendConnecting();
+const handleConnectToMetamask = async (popupPort: PortToPopup) => {
+    popupPort.sendState(BackgroundState.Connecting);
 
-    web3Provider.sendAsync({ method: 'eth_requestAccounts' }, async (err, res) => {
-        if (err) return console.log('DecentPass - Failed to request accounts from MetaMask');
+    const accountAddress = await connect(web3Provider);
 
-        const accountAddress = res.result[0];
+    if (!state.account) state.account = new Account(accountAddress, hash, deriveKey, encryptData, decryptData, signDigest, getAddressFromKey);
 
-        if (!state.account) state.account = new Account(accountAddress, hash, deriveKey, encryptData, decryptData, signDigest, getAddressFromKey);
+    if (!state.contract) state.contract = new ManagerContract(CONTRACT_ADDRESS, provider.getSigner(accountAddress));
 
-        if (!state.contract) state.contract = new ManagerContract(CONTRACT_ADDRESS, provider.getSigner(accountAddress));
+    const { encryptedSeed, iv, saltedPassword } = await state.contract.getAccountData(accountAddress);
+    await state.account.setPublics(hexStringToBuffer(encryptedSeed), hexStringToBuffer(iv), hexStringToBuffer(saltedPassword));
 
-        const { encryptedSeed, iv, saltedPassword } = await state.contract.getAccountData(accountAddress);
-        const loadSuccess = await state.account.setPublics(hexStringToBuffer(encryptedSeed), hexStringToBuffer(iv), hexStringToBuffer(saltedPassword));
-        loadSuccess ? popupPort.sendAccountFound() : popupPort.sendNoAccountFound();
-    });
+    conveyState(popupPort);
 }
 
-const handleCreate = (popupPort, password) => {
-    popupPort.sendCreating();
+const handleCreateAccount = async (popupPort: PortToPopup, password: string) => {
+    popupPort.sendState(BackgroundState.SigningSeed);
 
-    const seed = generateSeed();
     const account = state.account.accountAddress;
-    const setPasswordSuccess = state.account.setPassword(password);
-    const encryptedSeed = state.account.encrypt(seed, state.account.seedIv);
+    const seed = generateSeed();
+    const sig = await personalSign(web3Provider, seed, account);
 
-    web3Provider.sendAsync({ method: 'personal_sign', params: [seed, account], from: account }, async (err, res) => {
-        if (err || res.error) console.log('DecentPass - Failed to request signature from MetaMask');
-        if (err) return console.error(err);
-        if (res.error) return console.error(res.error);
+    // TODO: serialize rsv sig and hash instead of slice
+    const root = hexStringToBuffer(sig.r).slice(0, 32);
+    state.account.setPassword(password);
+    state.account.setRoot(root);
+    state.account.setSeed(seed);
 
-        const sig = res.result;
+    popupPort.sendState(BackgroundState.BroadcastingCreate);
+    const createSuccess = await state.contract.createAccount(bufferToHexString(state.account.encryptedSeed), bufferToHexString(state.account.iv), bufferToHexString(state.account.saltedPassword), 0, state.account.signerAddress);
 
-        // TODO: untested result key
-        state.account.setRoot(hexStringToBuffer(sig));
+    // TODO: this stuff may not show due to MetaMask stealing focus
+    if (!createSuccess) {
+        state.account.clearAll();
+        popupPort.sendResponse(BackgroundResponse.CreateFailed);
+    }
 
-        popupPort.sendBroadcastingCreate();
-        const createSuccess = await state.contract.createAccount(bufferToHexString(encryptedSeed), bufferToHexString(state.account.iv), bufferToHexString(state.account.saltedPassword), 0, state.account.signerAddress);
+    popupPort.sendResponse(BackgroundResponse.CreateSucceeded)
 
-        createSuccess ? popupPort.sendCreateSucceeded() : popupPort.sendCreateFailed();
-    });
+    conveyState(popupPort);
 };
 
-const handleLogin = (popupPort, password) => {
+const handleLogin = (popupPort: PortToPopup, password: string) => {
     if (state.account.isLoggedIn) state.account.clearPassword();
 
-    if (!state.account.testPassword(password)) return popupPort.sendIncorrectPassword();
+    if (!state.account.testPassword(password)) return popupPort.sendState(BackgroundResponse.IncorrectPassword);
 
     state.account.setPassword(password);
 
-    popupPort.sendLoggedIn();
+    conveyState(popupPort);
 };
 
-const handleLogout = popupPort => {
+const handleGetRoot = async (popupPort: PortToPopup) => {
+    if (!state.account.isLoggedIn) return popupPort.sendState(BackgroundState.LoggedOut);
+
+    popupPort.sendState(BackgroundState.SigningSeed);
+
+    const account = state.account.accountAddress;
+    const seed = state.account.seed;
+    const sig = await personalSign(web3Provider, seed, account);
+
+    // TODO: serialize rsv sig and hash instead of slice
+    const root = hexStringToBuffer(sig.r).slice(0, 32);
+    state.account.setRoot(root);
+
+    // Left off here, clean the end of this process up
+};
+
+const handleLogout = (popupPort: PortToPopup) => {
     state.account.clearPassword();
-    popupPort.sendLoggedOut();
+    conveyState(popupPort);
 };
 
-const handleClear = popupPort => {
+const handleClearPrivates = (popupPort: PortToPopup) => {
     state.account.clearPrivates()
-    popupPort.sendLoggedOut();
+    conveyState(popupPort);
 };
 
-const handleChangePasswordRequest = popupPort => {
+const handleChangePasswordRequest = (popupPort: PortToPopup) => {
     chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
         if (tabs.length === 0) return;
 
@@ -125,11 +153,11 @@ const handleChangePasswordRequest = popupPort => {
         const tabPort = tabPorts[tabPorts.length-1];
 
         tabPort.postMessage({ passwordChangeRequested: true });
-        popupPort.sendChangingPassword();
+        popupPort.sendState(BackgroundState.ChangingPassword);
     });
 };
 
-const handleUpdatePasswordRequest = popupPort => {
+const handleUpdatePasswordRequest = (popupPort: PortToPopup) => {
     chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
         if (tabs.length === 0) return;
 
@@ -137,7 +165,7 @@ const handleUpdatePasswordRequest = popupPort => {
         const tabPort = tabPorts[tabPorts.length-1];
 
         tabPort.postMessage({ passwordUpdateRequested: true });
-        popupPort.sendBroadcastingUpdate();
+        popupPort.sendState(BackgroundState.BroadcastingUpdate);
     });
 };
 

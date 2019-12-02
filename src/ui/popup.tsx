@@ -1,76 +1,96 @@
 import * as React from 'react';
 import * as ReactDOM from 'react-dom';
+import { PortToBackground, BackgroundState, BackgroundResponse, PopupRequest } from "../libs/popupPort";
 
 import '../styles/popup.css';
 
+enum View {
+    Splash,
+    MetaMaskConnectPrompt,
+    Main,
+    Login,
+    MetaMaskConnectingInfo,
+    MetaMaskSignPrompt,
+    ChoosePasswords,
+    CreationSteps,
+    MetaMaskSeedSigningInfo,
+    BroadcastingCreate,
+    CreateSucceeded,
+    CreateFailed,
+    ChangingPassword,
+    BroadcastingUpdate,
+};
+
 interface IState {
-    newUser?: boolean;
-    port?: chrome.runtime.Port;
+    view: View;
+    port: PortToBackground;
     pass?: string;
     confPass?: string;
-    mode?: string;
-}
+};
 
-interface IProps {}
+interface IProps {};
 
 class PopupUI extends React.Component<IProps, IState> {
     constructor(props) {
         super(props);
 
         this.state = {
-            newUser: false,
-            port: chrome.runtime.connect(),
-            mode: 'passwords',
+            view: View.Splash,
+            port: new PortToBackground(chrome.runtime.connect()),
         };
 
-        this.state.port.onMessage.addListener(message => {
-            console.log('DecentPass - Received message from background.');
+        this.state.port.onState(BackgroundState.NotConnected, () => this.changeView(View.MetaMaskConnectPrompt));
+        this.state.port.onState(BackgroundState.NoAccount, () => this.changeView());
+        this.state.port.onState(BackgroundState.NoRoot, () => this.changeView(View.MetaMaskSignPrompt));
+        this.state.port.onState(BackgroundState.LoggedOut, () => this.changeView(View.MetaMaskSignPrompt));
+        this.state.port.onState(BackgroundState.LoggedIn, () => this.changeView(View.MetaMaskSignPrompt));
 
-            console.log(message);
+        this.state.port.onState(BackgroundState.Connecting, () => this.changeView(View.MetaMaskConnectingInfo));
 
-            const { newUser, mode, incorrectPassword } = message;
 
-            this.setState({
-                newUser: newUser == null ? this.state.newUser : newUser,
-                mode: mode || 'passwords',
-                pass: incorrectPassword ? this.state.pass : null,
-                confPass: incorrectPassword ? this.state.confPass : null,
-            });
-        });
-    }
-
-    changePassword = e => {
-        console.log('DecentPass - Change password clicked.');
-
-        this.state.port.postMessage({ changePasswordRequest: true });
+        this.state.port.onLoggedIn(() => this.changeView(View.Main));
+        this.state.port.onLoggedOut(() => this.changeView(View.Login));
+        this.state.port.onAccountFound(() => this.changeView(View.Login));
+        this.state.port.onAccountNotFound(() => this.changeView(View.ChoosePasswords));
+        this.state.port.onSigning(() => this.changeView(View.MetaMaskSeedSigningInfo));
+        this.state.port.onBroadcastingCreate(() => this.changeView(View.MetaMaskSeedSigningInfo));
     };
 
-    updatePassword = e => {
-        console.log('DecentPass - Update password clicked.');
+    changeView = view => { this.setState({ view }); };
 
-        this.state.port.postMessage({ updatePasswordRequest: true });
-    };
 
-    passChange = e => {
-        console.log('DecentPass - Password field changed.');
 
-        this.setState({ pass: e.target.value });
-    };
 
-    confPassChange = e => {
-        console.log('DecentPass - Confirm Password field changed.');
+    handleBroadcastingCreate = () => { this.setState({ view: View.BroadcastingCreate }); };
 
-        this.setState({ confPass: e.target.value });
-    };
+    handleCreateSucceeded = () => { this.setState({ view: View.CreateSucceeded }); };
+
+    handleCreateFailed = () => { this.setState({ view: View.CreateFailed }); };
+
+    handleIncorrectPassword = () => { };
+
+    handleChangingPassword = () => { this.setState({ view: View.ChangingPassword }); };
+
+    handleBroadcastingUpdate = () => { this.setState({ view: View.BroadcastingUpdate }); };
+
+
+
+    changePassword = e => () => this.state.port.requestChangePassword;
+
+    updatePassword = e => () => this.state.port.requestUpdatePassword;
+
+    passChange = e => { this.setState({ pass: e.target.value }); };
+
+    confPassChange = e => { this.setState({ confPass: e.target.value }); };
 
     passwordsMatch = () => this.state.pass === this.state.confPass;
 
     continue = () => {
-        if (this.state.mode === 'passwords' && !this.state.newUser) return this.state.port.postMessage({ password: this.state.pass });
+        // if (this.state.mode === 'passwords' && !this.state.newUser) return this.state.port.postMessage({ password: this.state.pass });
 
-        if (this.state.mode === 'passwords' && this.passwordsMatch()) return this.setState({ mode: 'preConnecting' });
+        // if (this.state.mode === 'passwords' && this.passwordsMatch()) return this.setState({ mode: 'preConnecting' });
 
-        if (this.state.mode === 'preConnecting') return this.state.port.postMessage({ password: this.state.pass, connect: true });
+        // if (this.state.mode === 'preConnecting') return this.state.port.postMessage({ password: this.state.pass, connect: true });
     };
 
     handlePasswordKeyPress = e => {
@@ -79,7 +99,7 @@ class PopupUI extends React.Component<IProps, IState> {
 
     logOut = e => {
         console.log('DecentPass - End session submit.');
-        this.state.port.postMessage({ logOut: true });
+        // this.state.port.postMessage({ logOut: true });
     };
 
     getInfoText = () => {
